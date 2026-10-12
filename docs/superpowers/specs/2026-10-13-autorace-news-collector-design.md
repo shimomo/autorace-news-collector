@@ -86,8 +86,8 @@ src/
   Collector.php  CollectResult.php  FetchResult.php  Article.php  SourceFailure.php
   Contracts/Source.php  Contracts/Sleeper.php
   Http/HttpFetcher.php  Http/HttpResponse.php  Http/HttpException.php  Http/NativeSleeper.php
-  Html/BodyNormalizer.php  Html/NormalizedBody.php
-  Feed/XmlDocument.php
+  Html/HtmlDocument.php  Html/BodyNormalizer.php  Html/NormalizedBody.php
+  Feed/XmlDocument.php  Feed/FeedException.php
   Sources/AutoraceJpSource.php  Sources/NikkanSportsSource.php
   Sources/WordPressSource.php   Sources/WordPressSite.php  Sources/YouTubeSource.php
 tests/            # src と同じ構成。fixtures/ と Support/ を持つ
@@ -110,11 +110,11 @@ docs/superpowers/specs/
 
 ### 5.2 NikkanSportsSource
 
-- `https://www.nikkansports.com/public_race/auto/atom.xml` を取得。各 `entry` から `id`（`link[@rel=alternate]/@href` のファイル名から拡張子を除いたもの）、`title`、`published`、`summary` を読む。
+- `https://www.nikkansports.com/public_race/auto/atom.xml` を取得。各 `entry` から `id`（`link[@rel=alternate]/@href` のファイル名から拡張子を除いたもの）、`title`、`published`、`summary`、`link[@rel=enclosure]/@href`（写真）を読む。`content` も要約と同じ切り詰めテキストなので使わない。
 - `since` で絞った後、残った記事だけ記事ページを取得する。
-- 記事ページの抽出（symfony/dom-crawler）:
-  - 本文: `#articleMain p.prologue` と `#articleMain div#news.article-body` を順に連結した HTML を `BodyNormalizer` に通す。
-  - サムネイル: `#articleMain div.article-photo-area img` の `src`。無ければ本文先頭画像。
+- 記事ページの抽出（`Html\HtmlDocument`、DOMDocument ＋ XPath）:
+  - 本文: `section#articleMain` 内の `p.prologue` と `div#news.article-body` を順に連結した HTML を `BodyNormalizer` に通す。
+  - サムネイル: Atom の `link[@rel='enclosure']/@href`（記事写真）。無ければ本文先頭画像。記事ページの写真は `img@src` が空画像で実体は `style` の背景画像なので使わない。
 - 記事ページの取得または本文要素の抽出に失敗した場合、その記事は `summary` のみを持つ `Article` として返し、`failures` に記録する。
 - Atom は10件しか無い。SG 開催日のように1日10本を超える日は取りこぼし得るため、1〜2時間おきの実行を README に書く。
 
@@ -143,7 +143,7 @@ docs/superpowers/specs/
   - `publishedAt`: `date_gmt` を UTC として読み、Asia/Tokyo に変換。
   - `categories`: `_embedded['wp:term']` の全グループの `name` を出現順に。固定ラベルがあれば先頭に足す。
   - `bodyHtml` / `bodyText`: `content.rendered` を `BodyNormalizer` に通す。空なら null（伊勢崎は本文が空の投稿が多い）。
-  - `summary`: `excerpt.rendered` をテキスト化。空なら null。`interview` と `newsinfo` には `excerpt` が無いので null。
+  - `summary`: `excerpt.rendered` をテキスト化。空または無ければ null（浜松 `newsinfo` は空）。
   - `thumbnailUrl`: `_embedded['wp:featuredmedia'][0].source_url`。無ければ本文先頭画像。
 - `after` で絞っても `publishedAt >= since` の判定はライブラリ側でも行う。WP が `after` の時差をどう解釈しても、UTC の値を渡せば結果は「必要な分を含む集合」になるので、取りこぼしは起きず余分だけを落とせばよい。
 - 伊勢崎の `xo_event` 投稿タイプは対象外。浜松の区分（news / race / event）は REST に露出していないため `categories` は空になる。
@@ -160,11 +160,11 @@ docs/superpowers/specs/
 `Http\HttpFetcher`（final）が symfony/http-client の `HttpClientInterface` を包む。
 
 - `get(string $url): HttpResponse`。`HttpResponse` は `body: string` と `headers: array<string, list<string>>` を持つ readonly。
-- `getJson(string $url): array`。JSON を連想配列に。
+- `getJson(string $url): array` は `get($url)->json()` の短縮。`HttpResponse` は `header(name)`（大文字小文字を無視して先頭値）と `json()`（連想配列に復号、失敗は `HttpException`）を持つ。
 - 2xx 以外とトランスポート失敗は `Http\HttpException`（`RuntimeException` の子）に包んで投げる。symfony の例外はそのまま伝播させない。ソース側で `failures` に変換する。
 - ヘッダ: `User-Agent: autorace-news-collector (+https://github.com/shimomo/autorace-news-collector)`、`Accept-Language: ja`。UA は差し替え可能。バージョン番号は入れない（取得経路が環境で変わり、値が無くても困らないため）。
 - タイムアウト: 既定15秒。
-- 間隔: 2回目以降のリクエスト前に既定1秒待つ。待機は `Contracts\Sleeper`（`sleep(float $seconds): void`）経由。本番は `Http\NativeSleeper`（`usleep`）、テストは `tests/Support/NoopSleeper`。
+- 間隔: 2回目以降のリクエスト前に既定1秒待つ。待機は `Contracts\Sleeper`（`sleep(float $seconds): void`）経由。本番は `Http\NativeSleeper`（`usleep`）、テストは `tests/Support/SpySleeper`（待たずに秒数を記録）。
 - 再試行は持たない。必要なら呼び出し側が `RetryableHttpClient` で包んだクライアントを渡す。
 - `Collector::default()` は `HttpClient::create()` と既定設定で `HttpFetcher` を組む。
 
@@ -176,7 +176,7 @@ docs/superpowers/specs/
 - `bodyText`: 整形後の HTML からブロック要素（`p`、`div`、`br`、`li`、`h1`〜`h6`、`tr`）の境目を改行にしてタグを除去し、実体参照を戻し、連続する空白を1つに、3つ以上の連続改行を2つに畳む。前後の空白は除く。
 - `bodyText` が空なら `bodyHtml` と `bodyText` は両方 null。
 - `thumbnailUrl`: 整形後の先頭 `img@src`。無ければ null。
-- DOMDocument の読み込みは `<meta charset="UTF-8">` を前置して UTF-8 を明示する。
+- DOMDocument の読み込みは `<?xml encoding="UTF-8"?>` を前置して UTF-8 を明示する（libxml の HTML パーサは既定が ISO-8859-1 のため）。
 
 ## 8. フィード解析（`Feed\XmlDocument`）
 
@@ -211,9 +211,9 @@ docs/superpowers/specs/
 ## 11. ツール・リポジトリ
 
 - `composer.json`: `shimomo/autorace-news-collector`、`type: library`、MIT、PHP `^8.4`。
-  - require: `symfony/http-client ^8.0`、`symfony/dom-crawler ^8.0`、`symfony/css-selector ^8.0`
+  - require: `symfony/http-client ^8.0` のみ（HTML も XML も PHP 標準の DOMDocument で読むため dom-crawler は使わない）
   - require-dev: `phpunit/phpunit ^13.2`、`laravel/pint ^1.27`、`vimeo/psalm ^6.0`、`ergebnis/composer-normalize ^2.52`
-  - scripts: `test`（phpunit）、`analyse`（psalm）、`lint`（pint --test）、`fix`（pint）、`normalize`
+  - scripts: `test`（phpunit）、`analyse`（psalm）、`lint`（pint --test）、`fix`（pint）。整形は plugin の `composer normalize` を直接使う
   - インデントは4スペース。
 - `pint.json` は boatrace の複製（preset `empty`、docblock 系 fixer なし）。
 - `psalm.xml.dist`: errorLevel 1、`findUnusedCode="false"`、対象は `src` と `tests`。
