@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.2.0 - 2026-10-13
+
 ### Added
 
 - `Collector::only()` / `Collector::without()` でソースキーによる絞り込み。未知のキーと空の `only()` は `InvalidArgumentException`
