@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace Shimomo\AutoraceNewsCollector\Tests;
 
+use DateTime;
 use DateTimeImmutable;
 use DateTimeZone;
+use InvalidArgumentException;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
@@ -187,6 +189,148 @@ final class CollectorTest extends TestCase
         sort($keys);
 
         self::assertSame(['autorace.jp', 'hamamatsu', 'isesaki', 'kawaguchi', 'nikkansports', 'sanyo', 'youtube'], $keys);
+    }
+
+    /**
+     * @return void
+     */
+    #[Test]
+    public function onlyKeepsSourcesWithTheGivenKeys(): void
+    {
+        $a = new StubSource('a');
+        $b = new StubSource('b');
+        $c = new StubSource('c');
+        $collector = new Collector([$a, $b, $c]);
+
+        $only = $collector->only('c', 'a');
+
+        self::assertSame([$a, $c], $only->sources());
+        self::assertSame([$a, $b, $c], $collector->sources());
+    }
+
+    /**
+     * 川口のように同じキーを持つソースは、キー指定でまとめて残す。
+     *
+     * @return void
+     */
+    #[Test]
+    public function onlyKeepsEverySourceSharingAKey(): void
+    {
+        $news = new StubSource('kawaguchi');
+        $interview = new StubSource('kawaguchi');
+        $other = new StubSource('youtube');
+
+        $only = (new Collector([$news, $interview, $other]))->only('kawaguchi');
+
+        self::assertSame([$news, $interview], $only->sources());
+    }
+
+    /**
+     * @return void
+     */
+    #[Test]
+    public function withoutDropsSourcesWithTheGivenKeys(): void
+    {
+        $a = new StubSource('a');
+        $b = new StubSource('b');
+        $c = new StubSource('b');
+        $d = new StubSource('d');
+        $collector = new Collector([$a, $b, $c, $d]);
+
+        $without = $collector->without('b', 'd');
+
+        self::assertSame([$a], $without->sources());
+        self::assertSame([$a, $b, $c, $d], $collector->sources());
+    }
+
+    /**
+     * @return void
+     */
+    #[Test]
+    public function onlyRejectsAnUnknownKey(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessageIs('Unknown source key "nope".');
+
+        (new Collector([new StubSource('a')]))->only('a', 'nope');
+    }
+
+    /**
+     * 設定が空のまま only(...$keys) されても黙って0件にしない。
+     *
+     * @return void
+     */
+    #[Test]
+    public function onlyRequiresAtLeastOneKey(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessageIs('At least one source key is required.');
+
+        (new Collector([new StubSource('a')]))->only();
+    }
+
+    /**
+     * @return void
+     */
+    #[Test]
+    public function withoutWithNoKeysKeepsEverySource(): void
+    {
+        $a = new StubSource('a');
+        $b = new StubSource('b');
+
+        self::assertSame([$a, $b], (new Collector([$a, $b]))->without()->sources());
+    }
+
+    /**
+     * @return void
+     */
+    #[Test]
+    public function withoutRejectsAnUnknownKey(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessageIs('Unknown source key "nope".');
+
+        (new Collector([new StubSource('a')]))->without('nope');
+    }
+
+    /**
+     * @return void
+     */
+    #[Test]
+    public function defaultPassesMaxPagesToTheWordPressSources(): void
+    {
+        $since = new DateTimeImmutable('2000-01-01 00:00:00', new DateTimeZone('Asia/Tokyo'));
+        $client = static fn(): MockHttpClient => new MockHttpClient(static fn(): MockResponse => new MockResponse(
+            Fixtures::read('wordpress/sanyo-posts.json'),
+            ['response_headers' => ['x-wp-totalpages' => '5']],
+        ));
+
+        $limited = $client();
+        $default = $client();
+
+        Collector::default(new HttpFetcher($limited, new SpySleeper()), maxPages: 2)->only('sanyo')->collect($since);
+        Collector::default(new HttpFetcher($default, new SpySleeper()))->only('sanyo')->collect($since);
+
+        self::assertSame(2, $limited->getRequestsCount());
+        self::assertSame(3, $default->getRequestsCount());
+    }
+
+    /**
+     * Laravel の now() は mutable な Carbon（DateTime）なので、DateTimeImmutable 以外も受ける。
+     *
+     * @return void
+     */
+    #[Test]
+    public function collectAcceptsAnyDateTimeInterfaceAsSince(): void
+    {
+        $since = new DateTime('2026-10-12 00:00:00', new DateTimeZone('Asia/Tokyo'));
+        $source = new StubSource('a');
+
+        (new Collector([$source]))->collect($since);
+
+        self::assertCount(1, $source->received);
+        self::assertInstanceOf(DateTimeImmutable::class, $source->received[0]);
+        self::assertSame('2026-10-12T00:00:00+09:00', $source->received[0]->format(DATE_ATOM));
     }
 
     /**
