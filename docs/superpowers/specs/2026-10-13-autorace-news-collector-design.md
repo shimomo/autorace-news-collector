@@ -176,11 +176,12 @@ docs/superpowers/specs/
 - `bodyText`: 整形後の HTML からブロック要素（`p`、`div`、`br`、`li`、`h1`〜`h6`、`tr`）の境目を改行にしてタグを除去し、実体参照を戻し、連続する空白を1つに、3つ以上の連続改行を2つに畳む。前後の空白は除く。
 - `bodyText` が空なら `bodyHtml` と `bodyText` は両方 null。
 - `thumbnailUrl`: 整形後の先頭 `img@src`。無ければ null。
-- DOMDocument の読み込みは `<?xml encoding="UTF-8"?>` を前置して UTF-8 を明示する（libxml の HTML パーサは既定が ISO-8859-1 のため）。
+- DOMDocument の読み込みは `<?xml encoding="UTF-8"?><meta charset="UTF-8">` を前置して UTF-8 を明示する（libxml の HTML パーサは既定が ISO-8859-1。XML 宣言は古い libxml 向け、meta は文書内の宣言より先に見つかる宣言として新旧どちらにも効く）。
+- `bodyText` では表のセル（`td` / `th`）の境目を空白にする。
 
 ## 8. フィード解析（`Feed\XmlDocument`）
 
-- `DOMDocument` ＋ `DOMXPath` の薄い包み。名前空間（Atom、`yt`、`media`、`content`）を登録し、`items(xpath)`、`text(node, xpath)`、`attr(node, xpath, name)` を提供する。
+- `DOMDocument` ＋ `DOMXPath` の薄い包み。名前空間（`atom`、`yt`、`media`、`content`、`dc`）を登録し、`elements(xpath, context)`、`text(xpath, context)`、`texts(xpath, context)`、`attr(xpath, name, context)` を提供する。
 - XML の解析失敗は例外にし、ソース側でソース単位の失敗にする。
 - 日時変換は各ソースで `DateTimeImmutable::createFromFormat` を使い、失敗した項目はその1件だけ飛ばして `failures` に載せる。
 
