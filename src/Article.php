@@ -58,4 +58,28 @@ final readonly class Article
             }
         }
     }
+
+    /**
+     * Eloquent の updateOrCreate() などにそのまま渡せる snake_case の配列。
+     * id は主キーと衝突するので source_id にする。published_at は DateTimeImmutable のまま。
+     * 保存形式とタイムゾーンは呼び出し側が決める（クエリビルダは DateTimeInterface をそのまま受ける）。
+     *
+     * @return array{source: string, source_name: string, source_id: string, url: string, title: string, categories: list<string>, published_at: \DateTimeImmutable, summary: ?string, body_html: ?string, body_text: ?string, thumbnail_url: ?string}
+     */
+    public function toArray(): array
+    {
+        return [
+            'source' => $this->source,
+            'source_name' => $this->sourceName,
+            'source_id' => $this->id,
+            'url' => $this->url,
+            'title' => $this->title,
+            'categories' => $this->categories,
+            'published_at' => $this->publishedAt,
+            'summary' => $this->summary,
+            'body_html' => $this->bodyHtml,
+            'body_text' => $this->bodyText,
+            'thumbnail_url' => $this->thumbnailUrl,
+        ];
+    }
 }
