@@ -1,0 +1,47 @@
+{
+    "name": "shimomo/autorace-news-collector",
+    "description": "Collects the latest AutoRace news from official feeds and APIs.",
+    "license": "MIT",
+    "type": "library",
+    "authors": [
+        {
+            "name": "shimomo",
+            "email": "yuichi@shimomo.net"
+        }
+    ],
+    "require": {
+        "php": "^8.4",
+        "ext-dom": "*",
+        "ext-json": "*",
+        "ext-libxml": "*",
+        "symfony/http-client": "^8.0"
+    },
+    "require-dev": {
+        "ergebnis/composer-normalize": "^2.52",
+        "laravel/pint": "^1.27",
+        "phpunit/phpunit": "^13.2",
+        "vimeo/psalm": "^6.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "Shimomo\\AutoraceNewsCollector\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Shimomo\\AutoraceNewsCollector\\Tests\\": "tests/"
+        }
+    },
+    "config": {
+        "allow-plugins": {
+            "ergebnis/composer-normalize": true
+        },
+        "sort-packages": true
+    },
+    "scripts": {
+        "analyse": "psalm",
+        "fix": "pint",
+        "lint": "pint --test",
+        "test": "phpunit"
+    }
+}

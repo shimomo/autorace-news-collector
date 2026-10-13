@@ -1,0 +1,33 @@
+# OS
+.DS_Store
+Thumbs.db
+*~
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Composer
+/vendor/
+composer.phar
+composer.lock
+
+# PHPUnit
+.phpunit.result.cache
+.phpunit.cache
+phpunit.xml
+
+# Psalm
+psalm.xml
+psalm.xml.cache
+
+# Misc
+*.log
+*.bak
+*.tmp
+*.orig
+
+# Claude Code（ローカル専用）
+CLAUDE.md
