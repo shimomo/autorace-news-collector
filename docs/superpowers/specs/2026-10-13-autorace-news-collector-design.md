@@ -39,9 +39,10 @@ $result->articles;  // list<Article> 全ソース混在、publishedAt の新し�
 $result->failures;  // list<SourceFailure>
 ```
 
-- `Collector::default(?HttpFetcher $fetcher = null): self` は8つの `Source`（ソースキーは7種。川口は news と interview で2つ）を既定の `HttpFetcher` で組み立てる。
+- `Collector::default(?HttpFetcher $fetcher = null, int $maxPages = 3): self` は8つの `Source`（ソースキーは7種。川口は news と interview で2つ）を既定の `HttpFetcher` で組み立てる。`maxPages` は WordPress 4場の `since` 指定時のページ送り上限（5.3）。
 - `new Collector(list<Source> $sources)` で任意の組み合わせを渡せる。
-- `collect(?DateTimeImmutable $since = null): CollectResult`。`since` を渡すと `publishedAt >= since` の記事だけ返す。省略時は各ソースが1回で返せる範囲をそのまま返す。
+- `only(string ...$keys): self` / `without(string ...$keys): self` はソースキーで絞った新しい `Collector` を返す（元は変えない。順序は保つ）。同じキーのソース（川口の news と interview）はまとめて残る／落ちる。未知のキーと空の `only()` は `InvalidArgumentException`。設定ファイルの typo や設定漏れが黙って0件になると気づけないため（`without()` の空指定は何も除かない）。絞り込みは現在の `Collector` に対して行うので、`only('a')->without('b')` は `b` を未知のキーとして弾く。
+- `collect(?DateTimeInterface $since = null): CollectResult`。`since` を渡すと `publishedAt >= since` の記事だけ返す。省略時は各ソースが1回で返せる範囲をそのまま返す。mutable な `DateTime`（Laravel の `now()` など）も受け、ソースへは `DateTimeImmutable` に変換して渡す。
 - `collect()` は例外を投げない。失敗はすべて `failures` に載る。
 
 ### 3.1 `Article`（readonly）
@@ -62,6 +63,8 @@ $result->failures;  // list<SourceFailure>
 
 重複判定は `(source, id)` で呼び出し側が行う。日刊スポーツの記事は autorace.jp にも「【日刊提供】」として載るが、URL も ID も異なるためライブラリでは束ねず両方返す。
 
+`toArray()` は snake_case の配列（`source`、`source_name`、`source_id`、`url`、`title`、`categories`、`published_at`、`summary`、`body_html`、`body_text`、`thumbnail_url`）を返す。Eloquent の `updateOrCreate()` にそのまま渡せる形で、`id` は主キーと衝突するため `source_id` にする。`published_at` は `DateTimeImmutable` のまま。保存形式とタイムゾーンは呼び出し側が決める。`categories` は `list<string>` のまま。
+
 ### 3.2 `CollectResult` / `FetchResult` / `SourceFailure`
 
 - `FetchResult`: `articles: list<Article>`、`failures: list<SourceFailure>`。`Source::fetch()` の戻り値。
@@ -79,6 +82,10 @@ interface Source
 }
 ```
 
+`fetch()` の `since` は `DateTimeImmutable` のまま。実装側が `sub()` などを安心して使えるよう、`Collector::collect()` が変換してから渡す。
+
+テスト用に `Sources\ArraySource(string $key, string $name, list<Article> $articles = [], list<SourceFailure> $failures = [])` を用意する。渡した記事をそのまま返し、`since` は実ソースと同じ `publishedAt >= since` で絞る。利用側アプリのテストで `Collector` に差し込む。
+
 ## 4. 構成
 
 ```
@@ -90,6 +97,7 @@ src/
   Feed/XmlDocument.php  Feed/FeedException.php
   Sources/AutoraceJpSource.php  Sources/NikkanSportsSource.php
   Sources/WordPressSource.php   Sources/WordPressSite.php  Sources/YouTubeSource.php
+  Sources/ArraySource.php       # テスト用
 tests/            # src と同じ構成。fixtures/ と Support/ を持つ
 docs/sources.md
 docs/superpowers/specs/
@@ -206,7 +214,9 @@ docs/superpowers/specs/
   - WordPress: クエリ文字列（`per_page`、`_embed`、`_fields`、`after`）、`X-WP-TotalPages` に従うページ送りと `maxPages` の上限、`date_gmt` → JST、`_embedded` からの分類名とサムネイル、空本文の null 化、プリセット5つの設定値。
   - `BodyNormalizer`: 除去対象、絶対 URL 化、テキスト化の改行規則、空判定、先頭画像。
   - `HttpFetcher`: UA ヘッダ、2回目以降の待機（`Sleeper` のスパイ）、非 2xx の例外。
-  - `Collector`: 混在ソート、ソース単位の失敗隔離、`default()` が8つの `Source` を組むこと。
+  - `Collector`: 混在ソート、ソース単位の失敗隔離、`default()` が8つの `Source` を組むこと、`only()` / `without()` の絞り込みと未知キーの例外、`maxPages` が WordPress へ届くこと、mutable な `DateTime` の `since`。
+  - `Article`: `toArray()` のキーと `source_id`。
+  - `ArraySource`: `since` の境界（`>=`）、空のキーと表示名の拒否。
 - 通ることだけでなく、規約を故意に壊して落ちることも確認する。
 
 ## 11. ツール・リポジトリ

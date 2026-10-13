@@ -37,7 +37,14 @@ foreach ($result->failures as $failure) {
 }
 ```
 
-ソースを選ぶ場合は `Collector` に直接渡します。
+ソースをキーで絞る場合は `only()` / `without()` を使います。存在しないキーと空の `only()` は `InvalidArgumentException` になります（設定漏れで黙って 0 件にならないため）。`maxPages` は各レース場（WordPress）で `since` を指定したときのページ送り上限です（既定 3）。
+
+```php
+$collector = Collector::default(maxPages: 5)->only('autorace.jp', 'kawaguchi');
+$collector = Collector::default()->without('youtube');
+```
+
+独自の組み合わせは `Collector` に直接渡します。
 
 ```php
 use Shimomo\AutoraceNewsCollector\Collector;
@@ -56,6 +63,33 @@ $collector = new Collector([
 ```
 
 `HttpFetcher` は User-Agent、タイムアウト（既定 15 秒）、リクエスト間隔（既定 1 秒）を持ちます。再試行が要るときは symfony の `RetryableHttpClient` で包んだクライアントを渡してください。
+
+---
+
+## 🧩 Laravel から使う
+
+このパッケージは Laravel に依存しません。ServiceProvider、config、artisan コマンドはアプリ側に置いてください。
+
+`since` は `DateTimeInterface` を受けるので `now()->subDay()` をそのまま渡せます。`Article::toArray()` は snake_case の配列を返すので `updateOrCreate` に渡せます（`id` は主キーと衝突するため `source_id` になります）。`categories` は配列なので、モデル側で `'categories' => 'array'` の cast（JSON カラム）が要ります。`published_at` は `DateTimeImmutable` のままで、保存時のタイムゾーンはアプリの設定に従います。
+
+```php
+$result = Collector::default()->collect(since: now()->subDay());
+
+foreach ($result->articles as $article) {
+    NewsArticle::updateOrCreate(
+        ['source' => $article->source, 'source_id' => $article->id],
+        $article->toArray(),
+    );
+}
+```
+
+テストでは `Sources\ArraySource` を `Collector` に差し込むとネットワークに出ません。`since` の扱いは実ソースと同じです。
+
+```php
+use Shimomo\AutoraceNewsCollector\Sources\ArraySource;
+
+$collector = new Collector([new ArraySource('autorace.jp', 'AUTORACE.JP', [$article])]);
+```
 
 ---
 
@@ -90,6 +124,8 @@ $collector = new Collector([
 | `bodyHtml` | `?string` | 整形済み本文 HTML（script 等を除去、URL を絶対化） |
 | `bodyText` | `?string` | 本文のプレーンテキスト |
 | `thumbnailUrl` | `?string` | アイキャッチまたは本文先頭画像 |
+
+`toArray()` で snake_case の配列になります。`id` は `source_id`、`publishedAt` は `DateTimeImmutable` のままです。
 
 ---
 
